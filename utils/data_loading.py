@@ -1,4 +1,5 @@
 import logging
+import os
 import numpy as np
 import torch
 from PIL import Image
@@ -13,55 +14,51 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 
-def load_image(filename):
-    ext = splitext(filename)[1]
-    if ext == '.npy':
-        return Image.fromarray(np.load(filename))
-    elif ext in ['.pt', '.pth']:
-        return Image.fromarray(torch.load(filename).numpy())
-    else:
-        return Image.open(filename)
-
-
-def unique_mask_values(idx, mask_dir, mask_suffix):
-    mask_file = list(mask_dir.glob(idx + mask_suffix + '.*'))[0]
-    mask = np.asarray(load_image(mask_file))
-    if mask.ndim == 2:
-        return np.unique(mask)
-    elif mask.ndim == 3:
-        mask = mask.reshape(-1, mask.shape[-1])
-        return np.unique(mask, axis=0)
-    else:
-        raise ValueError(f'Loaded masks should have 2 or 3 dimensions, found {mask.ndim}')
+def readFlow(fn):
+    """ Read .flo file in Middlebury format"""
+    with open(fn, 'rb') as f:
+        magic = np.fromfile(f, np.float32, count=1)
+        if 202021.25 != magic:
+            print('Magic number incorrect. Invalid .flo file')
+            return None, None
+        else:
+            w = np.fromfile(f, np.int32, count=1)[0]
+            h = np.fromfile(f, np.int32, count=1)[0]
+            data = np.fromfile(f, np.float32, count=2*w*h)
+            flow = np.resize(data, (h, w, 2))
+            valid = (np.abs(flow[..., 0]) < 1000) & (np.abs(flow[..., 1]) < 1000)  # add valid check
+            return flow, valid.astype(np.float32)
 
 
 class BasicDataset(Dataset):
-    def __init__(self, images_dir: str, mask_dir: str, scale: float = 1.0, mask_suffix: str = ''):
+    def __init__(self, images_dir: str, flow_dir: str, scale: float = 1.0):
         self.images_dir = Path(images_dir)
-        self.mask_dir = Path(mask_dir)
+        self.flow_dir = Path(flow_dir)
         assert 0 < scale <= 1, 'Scale must be between 0 and 1'
         self.scale = scale
-        self.mask_suffix = mask_suffix
 
-        self.ids = [splitext(file)[0] for file in listdir(images_dir) if isfile(join(images_dir, file)) and not file.startswith('.')]
+        # self.ids = [splitext(file)[0] for file in listdir(images_dir) if isfile(join(images_dir, file)) and not file.startswith('.')]
+        self.ids = []
+        for root, _, files in os.walk(images_dir):
+            for file in files:
+                if file.endswith('.png') and not file.endswith('-checkpoint.png'):
+                    full_path = os.path.join(root, splitext(file)[0])
+                    relative_path = os.path.relpath(full_path, images_dir)
+                    self.ids.append(relative_path)
+        
+        # use 5 images to test
+        self.ids = self.ids[:5]
         if not self.ids:
             raise RuntimeError(f'No input file found in {images_dir}, make sure you put your images there')
 
         logging.info(f'Creating dataset with {len(self.ids)} examples')
         logging.info('Scanning mask files to determine unique values')
-        with Pool() as p:
-            unique = list(tqdm(
-                p.imap(partial(unique_mask_values, mask_dir=self.mask_dir, mask_suffix=self.mask_suffix), self.ids),
-                total=len(self.ids)
-            ))
-
-        self.mask_values = list(sorted(np.unique(np.concatenate(unique), axis=0).tolist()))
-        logging.info(f'Unique mask values: {self.mask_values}')
 
     def __len__(self):
         return len(self.ids)
 
     @staticmethod
+    # ignore first
     def preprocess(mask_values, pil_img, scale, is_mask):
         w, h = pil_img.size
         newW, newH = int(scale * w), int(scale * h)
@@ -84,34 +81,42 @@ class BasicDataset(Dataset):
                 img = img[np.newaxis, ...]
             else:
                 img = img.transpose((2, 0, 1))
-
+            '''
+            modify: don't normalized the input image
             if (img > 1).any():
                 img = img / 255.0
+            '''
 
             return img
 
     def __getitem__(self, idx):
-        name = self.ids[idx]
-        mask_file = list(self.mask_dir.glob(name + self.mask_suffix + '.*'))
-        img_file = list(self.images_dir.glob(name + '.*'))
+        image_id = self.ids[idx]
+        image_path = self.images_dir / (image_id + '.png')
+        flow_path = self.flow_dir / (image_id + '.flo')
 
-        assert len(img_file) == 1, f'Either no image or multiple images found for the ID {name}: {img_file}'
-        assert len(mask_file) == 1, f'Either no mask or multiple masks found for the ID {name}: {mask_file}'
-        mask = load_image(mask_file[0])
-        img = load_image(img_file[0])
+        # 检查文件是否存在
+        if not image_path.is_file():
+            print(f"Image file not found for ID {image_id}")
+            return None 
+        if not flow_path.is_file():
+            print(f"Flow file not found for ID {image_id}")
+            return None
 
-        assert img.size == mask.size, \
-            f'Image and mask {name} should be the same size, but are {img.size} and {mask.size}'
+        
+        image = Image.open(image_path)
+        image = BasicDataset.preprocess(None, image, self.scale, is_mask=False)
+        # image = torch.tensor(image).permute(2, 0, 1)  # convert HWC -> CHW
+        image = torch.tensor(image)
+        flow, valid = readFlow(flow_path)
+        
+        if flow is None:
+            print(f"Failed to read flow file for ID {image_id}")
+            return None  
 
-        img = self.preprocess(self.mask_values, img, self.scale, is_mask=False)
-        mask = self.preprocess(self.mask_values, mask, self.scale, is_mask=True)
 
         return {
-            'image': torch.as_tensor(img.copy()).float().contiguous(),
-            'mask': torch.as_tensor(mask.copy()).long().contiguous()
+            'image': image.contiguous(),
+            'flow': flow,
+            'valid': torch.from_numpy(valid).float(),
         }
 
-
-class CarvanaDataset(BasicDataset):
-    def __init__(self, images_dir, mask_dir, scale=1):
-        super().__init__(images_dir, mask_dir, scale, mask_suffix='_mask')
