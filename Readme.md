@@ -3,9 +3,9 @@
 ## Dataset
 Use the Sintel Final dataset to train the model. The dataset should be structured as follows:
 
-data/
-├── images (located at Sintel/training/final)
-└── flows (located at Sintel/training/flows)
+├──data  
+&ensp;&ensp;├── images (located at Sintel/training/final)  
+&ensp;&ensp;├── flows (located at Sintel/training/flows)  
 
 ## Training Phase
 Use the following code to train the model:
