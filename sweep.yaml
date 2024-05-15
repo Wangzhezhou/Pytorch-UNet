@@ -8,10 +8,6 @@ parameters:
     max: 0.02
     min: 0.00001
     distribution: uniform
-  validation:
-    max: 20
-    min: 5
-    distribution: uniform
   momentum:
     values: [0.8, 0.9, 0.95]
   gradient_clipping:
