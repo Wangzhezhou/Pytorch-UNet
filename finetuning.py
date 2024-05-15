@@ -309,7 +309,7 @@ if __name__ == '__main__':
     try:
         train_model(
             model=model,
-            epochs=20,  # Reduced number of epochs for fine-tuning
+            epochs=20,  # set the finetuning epoch to 20
             batch_size=args.batch_size,
             learning_rate=args.lr * 0.1,  # Reduced learning rate for fine-tuning
             device=device,
