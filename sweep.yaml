@@ -1,0 +1,23 @@
+program: train.py
+method: bayes
+metric:
+  goal: minimize
+  name: validation epe score
+parameters:
+  learning_rate:
+    max: 0.02
+    min: 0.00001
+    distribution: uniform
+  validation:
+    max: 20
+    min: 5
+    distribution: uniform
+  momentum:
+    values: [0.8, 0.9, 0.95]
+  gradient_clipping:
+    values: [0.5, 1.0, 2.0]
+  weight_decay:
+    distribution: log_uniform_values
+    min: 0.0000000001
+    max: 0.0001
+
