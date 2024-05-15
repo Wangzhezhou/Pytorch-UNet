@@ -6,9 +6,9 @@ Use the Sintel Final dataset to train the model. The dataset should be structure
 ├──data  
 &ensp;&ensp;├── images (located at Sintel/training/final)  
 &ensp;&ensp;├── flows (located at Sintel/training/flows)  
-&ensp;&ensp;├── KITTI
-&ensp;&ensp;&ensp;&ensp;├── flow_occ (KITTI's optical flow GT)
-&ensp;&ensp;&ensp;&ensp;├── image_2 (KITTI's training data)
+&ensp;&ensp;├── KITTI  
+&ensp;&ensp;&ensp;&ensp;├── flow_occ (KITTI's optical flow GT)  
+&ensp;&ensp;&ensp;&ensp;├── image_2 (KITTI's training data)  
 
 
 ## Training Phase
